@@ -1,9 +1,9 @@
 {
-  "name": "PocketWatcher",
-  "short_name": "PocketWatcher",
+  "name": "Pocket Watcher",
+  "short_name": "Pocket Watcher",
   "description": "Shared household finance tracker for couples",
-  "start_url": "/",
-  "scope": "/",
+  "start_url": "/PocketWatcher/",
+  "scope": "/PocketWatcher/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#ffffff",
