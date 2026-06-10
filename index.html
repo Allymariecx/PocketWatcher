@@ -1142,12 +1142,16 @@ function renderSpend() {
 function txnRow(t) {
   const cat   = t.cat || 'other';
   const label = t.note ? esc(t.note) : cap(cat);
+  const acct  = t.accountId ? S.accounts.find(a=>a.id===t.accountId) : null;
   return `
     <div class="li" onclick="editItem('transactions','${t.id}')">
       <div class="li-ico" style="background:${catBg(cat)}">${CAT_ICO[cat]||'📌'}</div>
       <div class="li-body">
         <div class="li-name">${label}</div>
-        <div class="li-sub">${ownerBadge(t.owner)}</div>
+        <div class="li-sub">
+          ${ownerBadge(t.owner)}
+          ${acct?`<span style="font-size:10px;background:var(--surf2);border:1px solid var(--border2);border-radius:4px;padding:1px 6px;color:var(--textD)">${ACCT_ICO[acct.type]||'🏦'} ${esc(acct.name)}</span>`:''}
+        </div>
       </div>
       <div class="li-amt neg">${money(t.amount)}</div>
     </div>`;
@@ -1295,8 +1299,11 @@ function buildForm(type, v) {
     ${delBtn(v)}<button class="btn btn-p" onclick="sv('income')">${v.id?'Update Income':'Add Income'}</button>`;
 
   if (type==='transactions') {
-    const today = new Date().toLocaleDateString('en-CA');
-    const spendCats = ['food','transport','health','entertainment','utilities','gym','subscription','phone','internet','housing','other'];
+    const today    = new Date().toLocaleDateString('en-CA');
+    const spendCats= ['food','transport','health','entertainment','utilities','gym','subscription','phone','internet','housing','other'];
+    const acctOpts = S.accounts.map(a=>
+      `<option value="${a.id}" ${v.accountId===a.id?'selected':''}>${ACCT_ICO[a.type]||'🏦'} ${esc(a.name)}</option>`
+    ).join('');
     return `
       <div class="fg">
         <label class="fl">Amount ($)</label>
@@ -1308,6 +1315,12 @@ function buildForm(type, v) {
           <select class="fs" id="fcat">${spendCats.map(c=>`<option value="${c}" ${v.cat===c?'selected':''}>${CAT_ICO[c]||''} ${cap(c)}</option>`).join('')}</select></div>
         <div class="fg"><label class="fl">Paid By</label>
           <select class="fs" id="fowner">${ownerOpts}</select></div>
+      </div>
+      <div class="fg"><label class="fl">Deduct from Account <span style="color:var(--textM);font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+        <select class="fs" id="facct">
+          <option value="">None — cash / untracked</option>
+          ${acctOpts}
+        </select>
       </div>
       <div class="fg"><label class="fl">Note (optional)</label>
         <input class="fi" id="fnote" placeholder="e.g. Walmart run, Date night…" value="${esc(v.note)||''}"></div>
@@ -1348,11 +1361,12 @@ function sv(type) {
 
   if (type==='transactions') {
     item = {
-      amount: gn('famt'),
-      cat:    g('fcat'),
-      owner:  g('fowner'),
-      note:   g('fnote').trim(),
-      date:   g('fdate') || new Date().toLocaleDateString('en-CA')
+      amount:    gn('famt'),
+      cat:       g('fcat'),
+      owner:     g('fowner'),
+      note:      g('fnote').trim(),
+      date:      g('fdate') || new Date().toLocaleDateString('en-CA'),
+      accountId: g('facct') || null
     };
     if (!item.amount) { toast('Enter an amount.','e'); return; }
   }
@@ -1360,9 +1374,28 @@ function sv(type) {
   const isEdit = !!eid;
   if (isEdit) {
     const idx = S[type].findIndex(x=>x.id===eid);
-    if (idx!==-1) S[type][idx] = {...S[type][idx], ...item};
+    if (idx!==-1) {
+      // Reverse the old account deduction before overwriting
+      if (type==='transactions') {
+        const old = S[type][idx];
+        if (old.accountId) {
+          const a = S.accounts.find(a=>a.id===old.accountId);
+          if (a) a.balance = Math.round((a.balance + old.amount) * 100) / 100;
+        }
+      }
+      S[type][idx] = {...S[type][idx], ...item};
+    }
   } else {
     S[type].unshift({id:uid(), createdAt:Date.now(), ...item});
+  }
+
+  // Apply new account deduction for transactions
+  if (type==='transactions' && item.accountId) {
+    const a = S.accounts.find(a=>a.id===item.accountId);
+    if (a) {
+      a.balance = Math.round((a.balance - item.amount) * 100) / 100;
+      takeSnapshot();
+    }
   }
 
   if (type === 'accounts') takeSnapshot();
@@ -1376,6 +1409,17 @@ function delItem() {
   if (!confirm('Delete this item?')) return;
   // Capture type BEFORE closeModal nulls etype
   const type = etype;
+  // Reverse account deduction if this transaction was linked to one
+  if (type==='transactions') {
+    const txn = S[type].find(x=>x.id===eid);
+    if (txn?.accountId) {
+      const a = S.accounts.find(a=>a.id===txn.accountId);
+      if (a) {
+        a.balance = Math.round((a.balance + txn.amount) * 100) / 100;
+        takeSnapshot();
+      }
+    }
+  }
   S[type] = S[type].filter(x=>x.id!==eid);
   if (type === 'accounts') takeSnapshot();
   save();
