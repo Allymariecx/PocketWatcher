@@ -478,6 +478,17 @@ function curMonth() {
   return new Date().toLocaleDateString('en-CA').slice(0,7);
 }
 function isPaid(b) { return !!(b.paid && b.paid[curMonth()]); }
+// Returns { amount, accountId } for this month's payment, or null
+function paidData(b) {
+  const p = b.paid?.[curMonth()];
+  if (!p) return null;
+  if (p === true) return { amount: b.amount, accountId: b.accountId||null }; // legacy format
+  return p;
+}
+function toggleBillPaidAmt(cb) {
+  const wrap = $$('paidAmtWrap');
+  if (wrap) wrap.style.display = cb.checked ? 'block' : 'none';
+}
 function isUsed(i) { return !!(i.used && i.used[curMonth()]); }
 function toggleUsed(id) {
   const i = S.income.find(x=>x.id===id); if (!i) return;
@@ -749,11 +760,30 @@ function renderDash() {
 function togglePaid(id) {
   const b = S.bills.find(x=>x.id===id); if (!b) return;
   if (!b.paid) b.paid = {};
-  const mk = curMonth();
-  b.paid[mk] = !b.paid[mk];
+  const mk       = curMonth();
+  const wasPaid  = isPaid(b);
+
+  if (wasPaid) {
+    // Reverse the account deduction
+    const pd = paidData(b);
+    if (pd?.accountId) {
+      const a = S.accounts.find(x=>x.id===pd.accountId);
+      if (a) { a.balance = Math.round((a.balance + pd.amount) * 100) / 100; takeSnapshot(); }
+    }
+    delete b.paid[mk];
+  } else {
+    // Mark paid at the bill's normal amount, deduct from linked account
+    const acctId = b.accountId || null;
+    b.paid[mk] = { amount: b.amount, accountId: acctId };
+    if (acctId) {
+      const a = S.accounts.find(x=>x.id===acctId);
+      if (a) { a.balance = Math.round((a.balance - b.amount) * 100) / 100; takeSnapshot(); }
+    }
+  }
+
   save(); renderBills();
   if (cur==='dashboard') renderDash();
-  toast(b.paid[mk] ? '✓ Marked as paid' : 'Marked as unpaid', b.paid[mk]?'s':'n');
+  toast(!wasPaid ? '✓ Bill marked as paid' : 'Marked as unpaid', !wasPaid?'s':'n');
 }
 
 function renderBills() {
@@ -789,7 +819,10 @@ function renderBills() {
 }
 
 function billRow(b, dim=false) {
-  const paid = isPaid(b);
+  const paid  = isPaid(b);
+  const pd    = paid ? paidData(b) : null;
+  const acct  = b.accountId ? S.accounts.find(a=>a.id===b.accountId) : null;
+  const paidCustom = pd && pd.amount !== b.amount;
   return `
     <div class="li" onclick="editItem('bills','${b.id}')" style="${dim?'opacity:.4':''}">
       <div class="li-ico" style="background:${catBg(b.cat)}">${CAT_ICO[b.cat]||'📌'}</div>
@@ -799,7 +832,8 @@ function billRow(b, dim=false) {
           ${freqStr(b.freq)}${b.freq==='monthly'?` · Due ${b.dueDay||1}${th(b.dueDay||1)}`:''}
           ${b.auto?'<span class="badge badge-g">Auto</span>':''}
           ${ownerBadge(b.paidBy)}
-          ${paid?'<span class="badge badge-g">Paid ✓</span>':''}
+          ${acct?`<span style="font-size:10px;background:var(--surf2);border:1px solid var(--border2);border-radius:4px;padding:1px 6px;color:var(--textD)">${ACCT_ICO[acct.type]||'🏦'} ${esc(acct.name)}</span>`:''}
+          ${paid?`<span class="badge badge-g">Paid${paidCustom?' '+money(pd.amount):' ✓'}</span>`:''}
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:9px;flex-shrink:0">
@@ -1228,6 +1262,13 @@ function buildForm(type, v) {
 
   if (type==='bills') {
     const cats = ['utilities','streaming','insurance','housing','transport','food','health','subscription','phone','internet','gym','entertainment','other'];
+    const acctOpts = S.accounts.map(a=>
+      `<option value="${a.id}" ${v.accountId===a.id?'selected':''}>${ACCT_ICO[a.type]||'🏦'} ${esc(a.name)}</option>`
+    ).join('');
+    const pd            = v.id ? paidData(v) : null;
+    const paidThisMo    = !!pd;
+    const paidAmt       = pd ? pd.amount : (v.amount ?? '');
+    const showPaySect   = !!v.id && v.freq==='monthly' && v.active!==false;
     return `
       <div class="fg"><label class="fl">Name</label>
         <input class="fi" id="fn" placeholder="e.g. Netflix, Rent…" value="${esc(v.name)||''}"></div>
@@ -1250,7 +1291,25 @@ function buildForm(type, v) {
           <label class="f-check" style="margin:0"><input type="checkbox" id="fauto" ${v.auto?'checked':''}><span>Auto-pay</span></label>
         </div>
       </div>
+      <div class="fg"><label class="fl">Pay from Account <span style="color:var(--textM);font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+        <select class="fs" id="fbillacct">
+          <option value="">None — untracked</option>
+          ${acctOpts}
+        </select>
+      </div>
       <label class="f-check"><input type="checkbox" id="factive" ${v.active!==false?'checked':''}><span>Active</span></label>
+      ${showPaySect ? `
+      <div style="background:var(--surf2);border:1px solid var(--border2);border-radius:var(--rS);padding:12px;margin-bottom:14px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--textM);margin-bottom:10px">This Month's Payment</div>
+        <label class="f-check" style="margin-bottom:${paidThisMo?'12px':'0'}">
+          <input type="checkbox" id="fbillpaid" ${paidThisMo?'checked':''} onchange="toggleBillPaidAmt(this)">
+          <span>Mark as paid this month</span>
+        </label>
+        <div id="paidAmtWrap" style="display:${paidThisMo?'block':'none'}">
+          <label class="fl" style="margin-top:8px">Amount Paid ($)</label>
+          <input class="fi" id="fbillpaidamt" type="number" step="0.01" placeholder="${v.amount||'0.00'}" value="${paidAmt}">
+        </div>
+      </div>` : ''}
       ${delBtn(v)}<button class="btn btn-p" onclick="sv('bills')">${v.id?'Update Bill':'Add Bill'}</button>`;
   }
 
@@ -1344,7 +1403,12 @@ function sv(type) {
     if (!item.name) { toast('Enter an account name.','e'); return; }
   }
   if (type==='bills') {
-    item = {name:g('fn').trim(),amount:gn('famt'),freq:g('ffreq'),dueDay:gi('fdue')||1,cat:g('fcat'),paidBy:g('fpaid'),auto:gb('fauto'),active:gb('factive')};
+    item = {
+      name:g('fn').trim(), amount:gn('famt'), freq:g('ffreq'),
+      dueDay:gi('fdue')||1, cat:g('fcat'), paidBy:g('fpaid'),
+      auto:gb('fauto'), active:gb('factive'),
+      accountId: g('fbillacct')||null
+    };
     if (!item.name)   { toast('Enter a bill name.','e'); return; }
     if (!item.amount) { toast('Enter an amount.','e'); return; }
   }
@@ -1398,6 +1462,38 @@ function sv(type) {
     }
   }
 
+  // Handle this-month payment state for bills (modal edit only)
+  if (type==='bills') {
+    const mk       = curMonth();
+    const billRef  = isEdit ? S.bills.find(x=>x.id===eid) : S.bills[0];
+    const wasPaid  = !!(billRef?.paid?.[mk]);
+    const nowPaid  = gb('fbillpaid');
+    const payAmt   = gn('fbillpaidamt') || item.amount;
+    if (billRef) {
+      if (!billRef.paid) billRef.paid = {};
+      // Reverse old payment first if it existed
+      if (wasPaid) {
+        const old = billRef.paid[mk];
+        const oldAmt   = old?.amount   ?? billRef.amount;
+        const oldAccId = old?.accountId ?? (billRef.accountId||null);
+        if (oldAccId) {
+          const a = S.accounts.find(x=>x.id===oldAccId);
+          if (a) a.balance = Math.round((a.balance + oldAmt) * 100) / 100;
+        }
+        delete billRef.paid[mk];
+      }
+      // Apply new payment if marked
+      if (nowPaid) {
+        const acctId = item.accountId || null;
+        billRef.paid[mk] = { amount: payAmt, accountId: acctId };
+        if (acctId) {
+          const a = S.accounts.find(x=>x.id===acctId);
+          if (a) { a.balance = Math.round((a.balance - payAmt) * 100) / 100; takeSnapshot(); }
+        }
+      }
+    }
+  }
+
   if (type === 'accounts') takeSnapshot();
   save(); closeModal();
   go(type === 'transactions' ? 'spend' : type);
@@ -1414,10 +1510,16 @@ function delItem() {
     const txn = S[type].find(x=>x.id===eid);
     if (txn?.accountId) {
       const a = S.accounts.find(a=>a.id===txn.accountId);
-      if (a) {
-        a.balance = Math.round((a.balance + txn.amount) * 100) / 100;
-        takeSnapshot();
-      }
+      if (a) { a.balance = Math.round((a.balance + txn.amount) * 100) / 100; takeSnapshot(); }
+    }
+  }
+  // Reverse bill payment if the bill was paid this month
+  if (type==='bills') {
+    const b  = S.bills.find(x=>x.id===eid);
+    const pd = b ? paidData(b) : null;
+    if (pd?.accountId) {
+      const a = S.accounts.find(x=>x.id===pd.accountId);
+      if (a) { a.balance = Math.round((a.balance + pd.amount) * 100) / 100; takeSnapshot(); }
     }
   }
   S[type] = S[type].filter(x=>x.id!==eid);
