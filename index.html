@@ -311,9 +311,58 @@ body{
 .toast-s{background:rgba(16,232,120,.15);color:var(--accent);border:1px solid rgba(16,232,120,.25)}
 .toast-e{background:rgba(255,77,106,.15);color:var(--red);border:1px solid rgba(255,77,106,.25)}
 .toast-n{background:rgba(96,165,250,.15);color:var(--blue);border:1px solid rgba(96,165,250,.25)}
+
+/* ===== SPLASH SCREEN ===== */
+.splash{
+  position:fixed;inset:0;z-index:500;
+  background:radial-gradient(ellipse at 50% 30%,#0d2245 0%,#060b17 65%);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:32px 24px;text-align:center;
+  transition:opacity .45s ease,visibility .45s ease;
+}
+.splash.hide{opacity:0;visibility:hidden;pointer-events:none}
+.splash-logo{
+  width:min(220px,58vw);height:auto;
+  filter:drop-shadow(0 8px 28px rgba(16,232,120,.18));
+  opacity:0;transform:translateY(8px) scale(.96);
+  animation:splashIn .7s cubic-bezier(.2,.8,.2,1) .1s forwards;
+}
+.splash-slogan{
+  margin-top:20px;font-size:15px;font-weight:600;color:var(--textD);
+  letter-spacing:.3px;opacity:0;
+  animation:splashIn .6s ease .35s forwards;
+}
+.splash-slogan b{color:var(--accent);font-weight:700}
+.splash-lines{
+  margin-top:28px;font-family:'SF Mono',Menlo,Consolas,monospace;
+  font-size:11.5px;line-height:1.9;color:var(--textM);
+  min-height:96px;text-align:left;
+}
+.splash-line{opacity:0;transform:translateX(-6px);transition:opacity .35s ease,transform .35s ease}
+.splash-line.show{opacity:1;transform:none}
+.splash-line b{color:var(--accent);font-weight:700}
+.splash-btn{
+  margin-top:26px;padding:12px 30px;
+  background:transparent;border:1.5px solid var(--accent);border-radius:8px;
+  color:var(--accent);font-size:13px;font-weight:700;letter-spacing:1px;
+  cursor:pointer;opacity:0;font-family:inherit;
+  transition:opacity .4s ease,background .2s ease,box-shadow .2s ease,transform .1s ease;
+}
+.splash-btn.show{opacity:1}
+.splash-btn:hover{background:var(--accentGl);box-shadow:0 0 20px rgba(16,232,120,.2)}
+.splash-btn:active{transform:scale(.97)}
+@keyframes splashIn{to{opacity:1;transform:none}}
 </style>
 </head>
 <body>
+
+<!-- SPLASH -->
+<div class="splash" id="splash">
+  <img class="splash-logo" src="splash-logo.png" alt="Pocket Watcher">
+  <div class="splash-slogan">Watch your money. <b>Together.</b></div>
+  <div class="splash-lines" id="splashLines"></div>
+  <button class="splash-btn" id="splashBtn" onclick="dismissSplash()">Continue</button>
+</div>
 
 <header class="header">
   <div class="header-logo">
@@ -375,10 +424,11 @@ body{
       <button class="btn btn-p" onclick="saveSettings()">Save Names</button>
     </div>
     <div class="set-sect">
-      <div class="set-lbl">Data Backup</div>
-      <div class="alert alert-info">📱 Data is saved in this browser. Export to share with your partner or restore on another device.</div>
+      <div class="set-lbl">Sync With Partner</div>
+      <div class="alert alert-info" id="shareInfo">📱 Data stays in this browser — nothing is stored in the cloud. Share sends a backup file straight through Messages, email, or AirDrop.</div>
+      <button class="btn btn-p" id="shareBtn" onclick="shareData()" style="margin-bottom:10px">📲 Share Backup</button>
       <div class="btn-row">
-        <button class="btn btn-gh" onclick="exportData()">📤 Export</button>
+        <button class="btn btn-gh" onclick="exportData()">📤 Export File</button>
         <button class="btn btn-gh" onclick="document.getElementById('importFile').click()">📥 Import</button>
       </div>
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="handleImport(event)">
@@ -421,7 +471,9 @@ const KEY = 'pocketwatcher_v1';
 
 let S = {
   settings: { m1:'Partner 1', m2:'Partner 2' },
-  accounts: [], bills: [], goals: [], income: [], history: [], transactions: []
+  accounts: [], bills: [], goals: [], income: [], history: [], transactions: [],
+  // Tombstones: records id->deletedAt per collection so deletions survive merge-on-import
+  deleted: { accounts:{}, bills:{}, goals:{}, income:{}, transactions:{} }
 };
 
 let cur   = 'dashboard';
@@ -437,6 +489,10 @@ function load() {
     if (raw) S = { ...S, ...JSON.parse(raw) };
     if (!Array.isArray(S.history)) S.history = [];
     if (!Array.isArray(S.transactions)) S.transactions = [];
+    if (!S.deleted || typeof S.deleted !== 'object') S.deleted = {};
+    ['accounts','bills','goals','income','transactions'].forEach(k => {
+      if (!S.deleted[k] || typeof S.deleted[k] !== 'object') S.deleted[k] = {};
+    });
   } catch(e) {}
 }
 function save() { localStorage.setItem(KEY, JSON.stringify(S)); }
@@ -445,6 +501,8 @@ function save() { localStorage.setItem(KEY, JSON.stringify(S)); }
 //  UTILS
 // ============================================================
 function uid()  { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+// Marks an item as freshly modified so merge-on-import can detect the change
+function touch(obj) { if (obj) obj.updatedAt = Date.now(); return obj; }
 function $$(n)  { return document.getElementById(n); }
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
@@ -495,6 +553,7 @@ function toggleUsed(id) {
   if (!i.used) i.used = {};
   const mk = curMonth();
   i.used[mk] = !i.used[mk];
+  touch(i);
   save();
   renderIncome();
   if (cur==='dashboard') renderDash();
@@ -511,6 +570,21 @@ function takeSnapshot() {
   S.history.push({ date, netWorth: assets - debt, assets, debt });
   // Cap at 90 snapshots — older ones roll off
   if (S.history.length > 90) S.history = S.history.slice(-90);
+}
+
+// Retroactively shifts every past snapshot by a balance correction (e.g. fixing
+// a typo) so the "change over X days" figure doesn't treat the fix as a real
+// gain/loss. Call this BEFORE updating the account's balance.
+function correctBalance(delta, isCredit) {
+  if (!delta) return;
+  const nwDelta  = isCredit ? -delta : delta;
+  const astDelta = isCredit ? 0 : delta;
+  const dbtDelta = isCredit ? delta : 0;
+  S.history.forEach(h => {
+    h.netWorth = Math.round((h.netWorth + nwDelta) * 100) / 100;
+    h.assets   = Math.round((h.assets   + astDelta) * 100) / 100;
+    h.debt     = Math.round((h.debt     + dbtDelta) * 100) / 100;
+  });
 }
 
 function sparklineSVG(hist, h=46) {
@@ -768,7 +842,7 @@ function togglePaid(id) {
     const pd = paidData(b);
     if (pd?.accountId) {
       const a = S.accounts.find(x=>x.id===pd.accountId);
-      if (a) { a.balance = Math.round((a.balance + pd.amount) * 100) / 100; takeSnapshot(); }
+      if (a) { a.balance = Math.round((a.balance + pd.amount) * 100) / 100; touch(a); takeSnapshot(); }
     }
     delete b.paid[mk];
   } else {
@@ -777,9 +851,10 @@ function togglePaid(id) {
     b.paid[mk] = { amount: b.amount, accountId: acctId };
     if (acctId) {
       const a = S.accounts.find(x=>x.id===acctId);
-      if (a) { a.balance = Math.round((a.balance - b.amount) * 100) / 100; takeSnapshot(); }
+      if (a) { a.balance = Math.round((a.balance - b.amount) * 100) / 100; touch(a); takeSnapshot(); }
     }
   }
+  touch(b);
 
   save(); renderBills();
   if (cur==='dashboard') renderDash();
@@ -923,13 +998,19 @@ function renderAccts() {
 function quickEdit(id, bal) {
   const wrap = $$('qe-'+id); if (!wrap) return;
   wrap.outerHTML = `
-    <div class="qe-wrap" id="qe-${id}">
-      <input class="qe-input" id="qei-${id}" type="number" step="0.01" value="${bal}"
-        onclick="event.stopPropagation()"
-        onkeydown="if(event.key==='Enter'){event.stopPropagation();qeOk('${id}')}
-                   if(event.key==='Escape'){event.stopPropagation();qeCancel()}">
-      <button class="qe-btn qe-ok" onclick="event.stopPropagation();qeOk('${id}')">✓</button>
-      <button class="qe-btn qe-no" onclick="event.stopPropagation();qeCancel()">✗</button>
+    <div class="qe-wrap" id="qe-${id}" style="flex-direction:column;align-items:flex-end;gap:6px">
+      <div style="display:flex;align-items:center;gap:5px">
+        <input class="qe-input" id="qei-${id}" type="number" step="0.01" value="${bal}"
+          onclick="event.stopPropagation()"
+          onkeydown="if(event.key==='Enter'){event.stopPropagation();qeOk('${id}')}
+                     if(event.key==='Escape'){event.stopPropagation();qeCancel()}">
+        <button class="qe-btn qe-ok" onclick="event.stopPropagation();qeOk('${id}')">✓</button>
+        <button class="qe-btn qe-no" onclick="event.stopPropagation();qeCancel()">✗</button>
+      </div>
+      <label onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--textM);cursor:pointer;white-space:nowrap">
+        <input type="checkbox" id="qec-${id}" style="width:12px;height:12px;accent-color:var(--accent);cursor:pointer;margin:0">
+        Fixing a typo, not a real change
+      </label>
     </div>`;
   const inp = $$('qei-'+id);
   if (inp) { inp.focus(); inp.select(); }
@@ -940,12 +1021,18 @@ function qeOk(id) {
   const val = parseFloat(inp.value);
   if (isNaN(val)) { toast('Enter a valid number','e'); return; }
   const a = S.accounts.find(x=>x.id===id); if (!a) return;
+  const isCorrection = $$('qec-'+id)?.checked || false;
+  const delta = Math.round((val - a.balance) * 100) / 100;
+  if (isCorrection && delta) {
+    correctBalance(delta, a.type==='credit');
+  }
   a.balance = val;
+  touch(a);
   takeSnapshot();
   save();
   renderAccts();
   if (cur==='dashboard') renderDash();
-  toast('✓ Balance updated');
+  toast(isCorrection ? '✓ Balance corrected' : '✓ Balance updated');
 }
 
 function qeCancel() {
@@ -1195,21 +1282,45 @@ function txnRow(t) {
 //  SMART MERGE IMPORT
 // ============================================================
 function mergeData(d) {
-  // Merge each array collection by ID — newer createdAt wins on conflict
+  if (!S.deleted) S.deleted = {};
+  if (!d.deleted)  d.deleted  = {};
+
   ['accounts','bills','goals','income','transactions'].forEach(key=>{
-    const map={};
-    (S[key]||[]).forEach(item=>map[item.id]=item);
-    (d[key]||[]).forEach(item=>{
-      if (!map[item.id]) {
-        map[item.id]=item;
+    if (!S.deleted[key]) S.deleted[key] = {};
+    const dDel = d.deleted[key] || {};
+
+    // 1. Merge tombstones from both sides — keep the latest deletedAt per id
+    const mergedDel = { ...S.deleted[key] };
+    Object.entries(dDel).forEach(([id, ts]) => {
+      if (!mergedDel[id] || ts > mergedDel[id]) mergedDel[id] = ts;
+    });
+    S.deleted[key] = mergedDel;
+
+    // 2. Merge items by ID — freshest updatedAt (falls back to createdAt) wins
+    const map = {};
+    (S[key]||[]).forEach(item => map[item.id] = item);
+    (d[key]||[]).forEach(item => {
+      const existing = map[item.id];
+      if (!existing) {
+        map[item.id] = item;
       } else {
-        const exTs=map[item.id].createdAt||0;
-        const inTs=item.createdAt||0;
-        if (inTs>exTs) map[item.id]=item;
+        const exTs = existing.updatedAt || existing.createdAt || 0;
+        const inTs = item.updatedAt     || item.createdAt     || 0;
+        if (inTs > exTs) map[item.id] = item;
       }
     });
-    S[key]=Object.values(map);
+
+    // 3. Drop anything that was deleted on either device AFTER its last known edit
+    Object.keys(map).forEach(id => {
+      const delAt = mergedDel[id];
+      if (delAt == null) return;
+      const itemTs = map[id].updatedAt || map[id].createdAt || 0;
+      if (delAt >= itemTs) delete map[id];
+    });
+
+    S[key] = Object.values(map);
   });
+
   // Merge history by date — incoming wins same-day
   const hMap={};
   (S.history||[]).forEach(h=>hMap[h.date]=h);
@@ -1444,13 +1555,14 @@ function sv(type) {
         const old = S[type][idx];
         if (old.accountId) {
           const a = S.accounts.find(a=>a.id===old.accountId);
-          if (a) a.balance = Math.round((a.balance + old.amount) * 100) / 100;
+          if (a) { a.balance = Math.round((a.balance + old.amount) * 100) / 100; touch(a); }
         }
       }
       S[type][idx] = {...S[type][idx], ...item};
+      touch(S[type][idx]);
     }
   } else {
-    S[type].unshift({id:uid(), createdAt:Date.now(), ...item});
+    S[type].unshift({id:uid(), createdAt:Date.now(), updatedAt:Date.now(), ...item});
   }
 
   // Apply new account deduction for transactions
@@ -1458,6 +1570,7 @@ function sv(type) {
     const a = S.accounts.find(a=>a.id===item.accountId);
     if (a) {
       a.balance = Math.round((a.balance - item.amount) * 100) / 100;
+      touch(a);
       takeSnapshot();
     }
   }
@@ -1478,17 +1591,19 @@ function sv(type) {
         const oldAccId = old?.accountId ?? (billRef.accountId||null);
         if (oldAccId) {
           const a = S.accounts.find(x=>x.id===oldAccId);
-          if (a) a.balance = Math.round((a.balance + oldAmt) * 100) / 100;
+          if (a) { a.balance = Math.round((a.balance + oldAmt) * 100) / 100; touch(a); }
         }
         delete billRef.paid[mk];
+        touch(billRef);
       }
       // Apply new payment if marked
       if (nowPaid) {
         const acctId = item.accountId || null;
         billRef.paid[mk] = { amount: payAmt, accountId: acctId };
+        touch(billRef);
         if (acctId) {
           const a = S.accounts.find(x=>x.id===acctId);
-          if (a) { a.balance = Math.round((a.balance - payAmt) * 100) / 100; takeSnapshot(); }
+          if (a) { a.balance = Math.round((a.balance - payAmt) * 100) / 100; touch(a); takeSnapshot(); }
         }
       }
     }
@@ -1510,7 +1625,7 @@ function delItem() {
     const txn = S[type].find(x=>x.id===eid);
     if (txn?.accountId) {
       const a = S.accounts.find(a=>a.id===txn.accountId);
-      if (a) { a.balance = Math.round((a.balance + txn.amount) * 100) / 100; takeSnapshot(); }
+      if (a) { a.balance = Math.round((a.balance + txn.amount) * 100) / 100; touch(a); takeSnapshot(); }
     }
   }
   // Reverse bill payment if the bill was paid this month
@@ -1519,11 +1634,18 @@ function delItem() {
     const pd = b ? paidData(b) : null;
     if (pd?.accountId) {
       const a = S.accounts.find(x=>x.id===pd.accountId);
-      if (a) { a.balance = Math.round((a.balance + pd.amount) * 100) / 100; takeSnapshot(); }
+      if (a) { a.balance = Math.round((a.balance + pd.amount) * 100) / 100; touch(a); takeSnapshot(); }
     }
   }
   S[type] = S[type].filter(x=>x.id!==eid);
-  if (type === 'accounts') takeSnapshot();
+  (S.deleted[type] ||= {})[eid] = Date.now();
+  if (type === 'accounts') {
+    // Unlink any bills/transactions that still point at the deleted account,
+    // so future payments don't silently reference a ghost account.
+    S.bills.forEach(b => { if (b.accountId===eid) { b.accountId=null; touch(b); } });
+    S.transactions.forEach(t => { if (t.accountId===eid) { t.accountId=null; touch(t); } });
+    takeSnapshot();
+  }
   save();
   closeModal();
   render(type === 'transactions' ? 'spend' : type);   // re-render current page, don't navigate away
@@ -1556,15 +1678,42 @@ function saveSettings() {
   toast('✓ Names saved');
 }
 
+// Builds the backup file used by both Share and Export
+function buildBackupFile() {
+  const json = JSON.stringify(S, null, 2);
+  const name = `pocketwatcher-${new Date().toISOString().slice(0,10)}.json`;
+  return new File([json], name, {type:'application/json'});
+}
+
 function exportData() {
-  const blob = new Blob([JSON.stringify(S, null, 2)], {type:'application/json'});
-  const url  = URL.createObjectURL(blob);
+  const file = buildBackupFile();
+  const url  = URL.createObjectURL(file);
   const a    = document.createElement('a');
-  a.href = url;
-  // Fixed: was still saying "fintrackr-"
-  a.download = `pocketwatcher-${new Date().toISOString().slice(0,10)}.json`;
+  a.href = url; a.download = file.name;
   a.click(); URL.revokeObjectURL(url);
   toast('✓ Backup downloaded');
+}
+
+// One-tap native share sheet — Messages, email, AirDrop, etc. Falls back to
+// download if the browser/OS doesn't support sharing files (e.g. desktop Chrome).
+async function shareData() {
+  const file = buildBackupFile();
+  if (navigator.canShare && navigator.canShare({files:[file]})) {
+    try {
+      await navigator.share({
+        files: [file],
+        title: 'Pocket Watcher Backup',
+        text: `Pocket Watcher backup — ${new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'})}`
+      });
+      toast('✓ Shared');
+    } catch (err) {
+      // User cancelled the share sheet — not an error, stay quiet
+      if (err?.name !== 'AbortError') toast('Share failed — try Export instead','e');
+    }
+  } else {
+    toast('Sharing not supported here — using Export instead','n');
+    exportData();
+  }
 }
 
 function handleImport(e) {
@@ -1612,6 +1761,10 @@ function doImport(merge) {
     S = d;
     if (!Array.isArray(S.history))      S.history = [];
     if (!Array.isArray(S.transactions)) S.transactions = [];
+    if (!S.deleted || typeof S.deleted !== 'object') S.deleted = {};
+    ['accounts','bills','goals','income','transactions'].forEach(k => {
+      if (!S.deleted[k] || typeof S.deleted[k] !== 'object') S.deleted[k] = {};
+    });
   }
   save(); closeModal(); go('dashboard');
   toast(`✓ Data ${merge?'merged':'replaced'}`);
@@ -1619,7 +1772,8 @@ function doImport(merge) {
 
 function confirmClear() {
   if (confirm('Clear ALL data? This cannot be undone.')) {
-    S = {settings:{m1:'Partner 1',m2:'Partner 2'},accounts:[],bills:[],goals:[],income:[],history:[],transactions:[]};
+    S = {settings:{m1:'Partner 1',m2:'Partner 2'},accounts:[],bills:[],goals:[],income:[],history:[],transactions:[],
+      deleted:{accounts:{},bills:{},goals:{},income:{},transactions:{}}};
     save(); go('dashboard'); toast('Data cleared','n');
   }
 }
@@ -1630,6 +1784,60 @@ function confirmClear() {
 load();
 render('dashboard');
 updateSub();
+runSplash();
+
+// Builds the "systems check" lines from real household data, then reveals
+// them one at a time before showing the Continue button.
+function runSplash() {
+  const acctN = S.accounts.length;
+  const billN = S.bills.filter(b=>b.active).length;
+  const isFresh = acctN === 0 && billN === 0 && S.income.length === 0;
+
+  const lines = isFresh ? [
+    `<b>›</b> New household detected`,
+    `<b>›</b> Local storage ready`,
+    `<b>›</b> No cloud. No tracking.`,
+    `<b>›</b> Ready.`
+  ] : [
+    `<b>›</b> ${acctN} account${acctN!==1?'s':''} loaded`,
+    `<b>›</b> ${billN} bill${billN!==1?'s':''} tracked`,
+    `<b>›</b> Local-only · Private`,
+    `<b>›</b> Ready.`
+  ];
+
+  const wrap = $$('splashLines');
+  wrap.innerHTML = lines.map(l => `<div class="splash-line">${l}</div>`).join('');
+  const els = wrap.querySelectorAll('.splash-line');
+  els.forEach((el, i) => setTimeout(() => el.classList.add('show'), 550 + i*220));
+
+  setTimeout(() => $$('splashBtn').classList.add('show'), 550 + els.length*220 + 150);
+}
+
+function dismissSplash() {
+  const el = $$('splash');
+  if (!el) return;
+  el.classList.add('hide');
+  setTimeout(() => el.remove(), 500);
+}
+document.addEventListener('keydown', e => {
+  if ((e.key==='Enter'||e.key===' ') && $$('splash') && !$$('splash').classList.contains('hide')) dismissSplash();
+});
+
+// Hide the Share button on browsers/devices that can't share files
+// (mainly desktop) so Export/Import reads as the primary path there instead.
+(function initShareSupport() {
+  let canShareFiles = false;
+  try {
+    const probe = new File(['{}'], 'probe.json', {type:'application/json'});
+    canShareFiles = !!(navigator.canShare && navigator.canShare({files:[probe]}));
+  } catch(e) {}
+  if (!canShareFiles) {
+    const btn = $$('shareBtn');
+    if (btn) btn.style.display = 'none';
+    const info = $$('shareInfo');
+    if (info) info.textContent = '📱 Data stays in this browser — nothing is stored in the cloud. Export a backup to share with your partner or restore on another device.';
+  }
+})();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
