@@ -435,10 +435,10 @@ body{
     </div>
     <div class="set-sect">
       <div class="set-lbl">Fix History Drift</div>
-      <div class="alert alert-info">🩹 If a past balance mistake got recorded as a real gain/loss, nudge your whole net worth history back into line. This doesn't touch any current account balance — only past history points shift.</div>
+      <div class="alert alert-info">🩹 If your "net worth change" figure is off due to a past balance mistake, enter how much to move it here. Negative shrinks it, positive grows it. Current account balances are never touched.</div>
       <div class="fg">
-        <label class="fl">Adjustment Amount ($)</label>
-        <input class="fi" id="fhAmt" type="number" step="0.01" placeholder="e.g. -0.06 to remove a $0.06 phantom gain">
+        <label class="fl">Change the displayed figure by ($)</label>
+        <input class="fi" id="fhAmt" type="number" step="0.01" placeholder="e.g. -0.06 to lower it by $0.06">
       </div>
       <button class="btn btn-gh" onclick="applyHistoryFix()" style="margin-bottom:0">Apply to History</button>
     </div>
@@ -606,8 +606,11 @@ function applyHistoryFix() {
   if (!amt || isNaN(amt)) { toast('Enter a non-zero adjustment amount.','e'); return; }
   if (!S.history.length) { toast('No history to adjust yet.','e'); return; }
   const sign = amt > 0 ? '+' : '−';
-  if (!confirm(`Shift your entire net worth history by ${sign}${money(Math.abs(amt))}? This can't be undone.`)) return;
-  correctBalance(amt, false);
+  if (!confirm(`Change your "net worth change" figure by ${sign}${money(Math.abs(amt))}? This can't be undone.`)) return;
+  // Raising the historical baseline LOWERS the displayed "change since X" figure
+  // (and vice versa) — so we negate here to match what the user actually typed.
+  // A user entering -0.06 expects the displayed change to drop by $0.06.
+  correctBalance(-amt, false);
   save();
   $$('fhAmt').value = '';
   if (cur==='dashboard') renderDash();
