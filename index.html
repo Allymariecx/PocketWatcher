@@ -44,11 +44,24 @@ html,body{height:100%;-webkit-tap-highlight-color:transparent}
 body{
   background:var(--bg);color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,sans-serif;
+  font-variant-numeric:tabular-nums;
   min-height:100vh;overflow-x:hidden;
 }
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+/* Clean, theme-consistent number inputs — default spinner arrows look out of place */
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+input[type=number]{-moz-appearance:textfield}
+
+/* Keyboard focus — visible ring on real interactive elements only */
+.btn:focus-visible,.nav-btn:focus-visible,.paid-btn:focus-visible,.qe-btn:focus-visible,
+.ico-pick:focus-visible,.col-pick:focus-visible,.header-gear:focus-visible,
+.modal-x:focus-visible,.splash-btn:focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px;
+}
 
 /* ===== HEADER ===== */
 .header{
@@ -62,14 +75,16 @@ body{
 .header-gear{
   width:36px;height:36px;background:var(--surf2);border:1px solid var(--border2);
   border-radius:50%;display:flex;align-items:center;justify-content:center;
-  cursor:pointer;font-size:16px;transition:background .2s,border-color .2s;flex-shrink:0;
+  cursor:pointer;font-size:16px;transition:background .2s,border-color .2s,transform .1s;flex-shrink:0;
 }
 .header-gear:hover{background:var(--surf3);border-color:var(--border)}
+.header-gear:active{transform:scale(.92)}
 
 /* ===== LAYOUT ===== */
 .main{padding-top:58px;padding-bottom:74px;min-height:100vh}
 .page{display:none;padding:16px 16px 8px;max-width:620px;margin:0 auto}
-.page.active{display:block}
+.page.active{display:block;animation:pageIn .32s cubic-bezier(.2,.8,.2,1)}
+@keyframes pageIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
 /* ===== BOTTOM NAV ===== */
 .nav{
@@ -90,15 +105,17 @@ body{
 .nav-btn.active::before{width:22px}
 .nav-btn .ni{font-size:21px;line-height:1;transition:transform .15s}
 .nav-btn.active .ni{transform:scale(1.08)}
+.nav-btn:active .ni{transform:scale(.88)}
 
 /* ===== CARDS ===== */
-.card{background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);padding:16px;margin-bottom:12px}
+.card{background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);padding:16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.2)}
 
 /* ===== NET WORTH HERO ===== */
 .nw-card{
   background:linear-gradient(155deg,#0d2245 0%,#081428 55%,#060d1e 100%);
   border:1px solid var(--border);border-radius:var(--r);
   padding:22px 20px 20px;margin-bottom:14px;position:relative;overflow:hidden;
+  box-shadow:0 16px 40px -16px rgba(16,232,120,.18),0 4px 20px rgba(0,0,0,.35);
 }
 .nw-card::before{content:'';position:absolute;top:-50px;right:-50px;width:180px;height:180px;background:radial-gradient(circle,rgba(16,232,120,.1) 0%,transparent 65%);border-radius:50%}
 .nw-card::after{content:'';position:absolute;bottom:-30px;left:-20px;width:120px;height:120px;background:radial-gradient(circle,rgba(96,165,250,.06) 0%,transparent 70%);border-radius:50%}
@@ -112,7 +129,7 @@ body{
 
 /* ===== STAT GRID ===== */
 .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
-.stat{background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);padding:14px}
+.stat{background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);padding:14px;box-shadow:0 1px 3px rgba(0,0,0,.2)}
 .stat-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--textM);margin-bottom:6px}
 .stat-val{font-size:21px;font-weight:800;letter-spacing:-.5px}
 .stat-val.pos{color:var(--accent)}
@@ -137,9 +154,11 @@ body{
 .li{
   display:flex;align-items:center;gap:12px;padding:12px 14px;
   background:var(--surface);border:1px solid var(--border2);border-radius:var(--rS);
-  margin-bottom:8px;cursor:pointer;transition:background .15s,border-color .15s;
+  margin-bottom:8px;cursor:pointer;transition:background .15s,border-color .15s,transform .1s;
+  box-shadow:0 1px 3px rgba(0,0,0,.18);
 }
 .li:hover{background:var(--surf2);border-color:var(--border)}
+.li:active{transform:scale(.985);background:var(--surf2)}
 .li-ico{width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0}
 .li-body{flex:1;min-width:0}
 .li-name{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -180,6 +199,7 @@ body{
   font-size:15px;font-weight:800;flex-shrink:0;transition:all .2s;
 }
 .paid-btn:hover{border-color:var(--accent);color:var(--accent)}
+.paid-btn:active{transform:scale(.9)}
 .paid-btn.done{background:var(--accentGl);border-color:var(--accent);color:var(--accent)}
 
 /* ===== BADGES ===== */
@@ -197,9 +217,11 @@ body{
 /* ===== GOAL CARD ===== */
 .goal-card{
   padding:14px;background:var(--surface);border:1px solid var(--border2);
-  border-radius:var(--r);margin-bottom:10px;cursor:pointer;transition:background .15s,border-color .15s;
+  border-radius:var(--r);margin-bottom:10px;cursor:pointer;transition:background .15s,border-color .15s,transform .1s;
+  box-shadow:0 1px 3px rgba(0,0,0,.18);
 }
 .goal-card:hover{background:var(--surf2);border-color:var(--border)}
+.goal-card:active{transform:scale(.985);background:var(--surf2)}
 .gc-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px}
 .gc-name{font-size:14px;font-weight:700}
 .gc-pct{font-size:14px;font-weight:800}
@@ -222,6 +244,7 @@ body{
 }
 .fab.vis{display:flex}
 .fab:hover{transform:scale(1.08);box-shadow:0 6px 30px rgba(16,232,120,.5)}
+.fab:active{transform:scale(.94)}
 @media(min-width:640px){.fab{right:calc(50% - 300px + 18px)}}
 
 /* ===== MODAL ===== */
@@ -241,9 +264,10 @@ body{
 .modal-title{font-size:16px;font-weight:800;letter-spacing:-.2px}
 .modal-x{
   width:30px;height:30px;border:none;background:var(--surf2);border-radius:50%;
-  color:var(--textD);cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center;transition:background .15s;
+  color:var(--textD);cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center;transition:background .15s,transform .1s;
 }
 .modal-x:hover{background:var(--surf3)}
+.modal-x:active{transform:scale(.9)}
 
 /* ===== FORMS ===== */
 .fg{margin-bottom:14px}
@@ -285,7 +309,8 @@ body{
 .summ-val{font-size:18px;font-weight:800;letter-spacing:-.3px}
 
 /* ===== CASHFLOW ===== */
-.cf-card{background:var(--surf2);border:1px solid var(--border2);border-radius:var(--r);padding:14px;margin-bottom:14px}
+.cf-card{background:var(--surf2);border:1px solid var(--border2);border-radius:var(--r);padding:14px;margin-bottom:14px;transition:transform .1s}
+.cf-card[onclick]:active{transform:scale(.985)}
 .cf-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
 .cf-label{font-size:11px;color:var(--textM);font-weight:700;text-transform:uppercase;letter-spacing:.5px}
 .cf-val{font-size:14px;font-weight:800}
@@ -302,12 +327,12 @@ body{
 /* ===== TOAST ===== */
 .toast{
   position:fixed;bottom:82px;left:50%;
-  transform:translateX(-50%) translateY(8px);
+  transform:translateX(-50%) translateY(8px) scale(.94);
   padding:10px 20px;border-radius:22px;font-size:13px;font-weight:600;
   white-space:nowrap;z-index:999;opacity:0;pointer-events:none;
-  transition:opacity .22s,transform .22s;backdrop-filter:blur(12px);
+  transition:opacity .22s,transform .22s cubic-bezier(.2,.8,.2,1);backdrop-filter:blur(12px);
 }
-.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}
 .toast-s{background:rgba(16,232,120,.15);color:var(--accent);border:1px solid rgba(16,232,120,.25)}
 .toast-e{background:rgba(255,77,106,.15);color:var(--red);border:1px solid rgba(255,77,106,.25)}
 .toast-n{background:rgba(96,165,250,.15);color:var(--blue);border:1px solid rgba(96,165,250,.25)}
@@ -352,6 +377,15 @@ body{
 .splash-btn:hover{background:var(--accentGl);box-shadow:0 0 20px rgba(16,232,120,.2)}
 .splash-btn:active{transform:scale(.97)}
 @keyframes splashIn{to{opacity:1;transform:none}}
+
+/* Respect OS-level reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *,*::before,*::after{
+    animation-duration:0.01ms!important;
+    animation-iteration-count:1!important;
+    transition-duration:0.01ms!important;
+  }
+}
 </style>
 </head>
 <body>
